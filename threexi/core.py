@@ -83,10 +83,20 @@ def grpc_route(transport):
         raise ConfigError("A conventional gRPC serviceName is required.")
     return route_path("/" + service + "/", "gRPC service path")
 
+def grpc_service(value):
+    """Accept a conventional service name or its /service/ route prefix."""
+    if not isinstance(value, str):
+        raise ConfigError("gRPC service name must be a string.")
+    service = value[1:-1] if value.startswith('/') and value.endswith('/') else value
+    grpc_route({'serviceName': service})
+    if len(service) > 200:
+        raise ConfigError("gRPC service name must be at most 200 characters.")
+    return service
+
 def check_routes(paths):
     if any(a.startswith(b) or b.startswith(a) for i, a in enumerate(paths) for b in paths[i+1:]):
         raise ConfigError("Panel, subscription, and transport routes overlap.")
-    for forbidden in ("/assets/", "/healthz/", "/journal/"):
+    for forbidden in ("/assets/", "/healthz/", "/journal/", "/.well-known/acme-challenge/"):
         if any(forbidden.startswith(p) or p.startswith(forbidden) for p in paths):
             raise ConfigError("An application route overlaps a reserved website route.")
 
@@ -133,7 +143,9 @@ def extract_certificate(stream, cert_dir: Path, domain: str):
         raise ConfigError("The origin certificate is not yet valid.")
     return {"key_matches": True, "expires": parsed["notAfter"].isoformat()}
 
-def inspect(path: Path, domain: str = "", advertised: str = "", backend_port: int = 10001):
+def inspect(path: Path, domain: str = "", advertised: str = "", backend_port: int = 10001,
+            *, grpc_service_name=None, grpc_authority=None, grpc_mode=None):
+    advertised_override = bool(advertised)
     if not 1024 <= backend_port <= 65535:
         raise ConfigError("Backend port must be between 1024 and 65535.")
     db = read_db(path)
@@ -158,6 +170,15 @@ def inspect(path: Path, domain: str = "", advertised: str = "", backend_port: in
         transport = stream.get(network + "Settings", {})
         if not isinstance(transport, dict):
             raise ConfigError("Transport settings must be an object.")
+        transport = dict(transport)
+        if grpc_service_name is not None:
+            transport['serviceName'] = grpc_service(grpc_service_name)
+        if grpc_authority is not None:
+            grpc_authority = hostname(grpc_authority) if grpc_authority else ''
+        if grpc_mode not in (None, 'multi', 'gun'):
+            raise ConfigError("gRPC mode must be multi or gun.")
+        if grpc_mode is not None:
+            transport['multiMode'] = grpc_mode == 'multi'
         candidate = domain or transport.get("authority") or transport.get("host") or stream.get("tlsSettings", {}).get("serverName", "")
         domain = hostname(candidate)
         profile_host = db.execute("SELECT address FROM hosts WHERE inbound_id=? AND is_disabled=0 ORDER BY sort_order,id LIMIT 1", (row["id"],)).fetchone()
@@ -210,6 +231,9 @@ def inspect(path: Path, domain: str = "", advertised: str = "", backend_port: in
             "inbound_id": row["id"], "tag": row["tag"], "network": network,
             "domain": domain, "public_address": advertised, "public_port": 443,
             "backend_port": backend_port, "route": path_prefix,
+            "grpc_service_name": transport['serviceName'],
+            "grpc_authority_override": grpc_authority,
+            "public_address_override": advertised_override,
             "additional_inbound_ports": extra_ports, "certificate_inbound_ids": certificate_ids,
             "existing_host_id": host_rows[0]["id"] if host_rows else None,
             "panel_port": panel_port, "panel_path": panel_path,
@@ -252,6 +276,11 @@ def transform_database(target: Path, plan):
         db.execute("BEGIN IMMEDIATE")
         row = dict(db.execute("SELECT * FROM inbounds WHERE id=?", (plan["inbound_id"],)).fetchone())
         stream = parse_json(row["stream_settings"], "stream_settings")
+        grpc = stream.setdefault('grpcSettings', {})
+        grpc['serviceName'] = plan.get('grpc_service_name', plan['route'].strip('/'))
+        grpc['multiMode'] = plan['multi_mode']
+        if plan.get('grpc_authority_override') is not None:
+            grpc['authority'] = plan['grpc_authority_override']
         stream["security"] = "none"
         # TLS keys move to private Nginx files; advertised TLS comes from Host overrides.
         stream.pop("tlsSettings", None)
@@ -269,7 +298,7 @@ def transform_database(target: Path, plan):
             "inbound_id": plan["inbound_id"], "sort_order": 0, "remark": row["remark"],
             "server_description": "THREEXI public endpoint", "is_disabled": 0, "is_hidden": 0,
             "tags": '["THREEXI"]', "address": plan["public_address"], "port": 443,
-            "security": "tls", "sni": plan["domain"], "host_header": plan["domain"],
+            "security": "tls", "sni": plan["domain"], "host_header": plan.get('grpc_authority_override') if plan.get('grpc_authority_override') is not None else plan["domain"],
             "path": "", "alpn": '["h2"]', "fingerprint": plan["fingerprint"],
             "override_sni_from_address": 0, "keep_sni_blank": 0,
             "pinned_peer_cert_sha256": "[]", "verify_peer_cert_by_name": "",
@@ -287,6 +316,16 @@ def transform_database(target: Path, plan):
             db.execute(sql, [host[k] for k in keys])
         if plan.get("tls_domain") and plan.get("existing_host_id") is not None:
             db.execute("UPDATE hosts SET sni=?,host_header=? WHERE id=?", (plan["tls_domain"], plan["tls_domain"], plan["existing_host_id"]))
+        if plan.get('existing_host_id') is not None:
+            if plan.get('grpc_authority_override') is not None:
+                db.execute('UPDATE hosts SET host_header=? WHERE id=?',
+                           (plan['grpc_authority_override'], plan['existing_host_id']))
+            if plan.get('public_address_override'):
+                db.execute('UPDATE hosts SET address=? WHERE id=?',
+                           (plan['public_address'], plan['existing_host_id']))
+            # An old Host path must not override the explicitly selected service.
+            if plan.get('grpc_service_override'):
+                db.execute('UPDATE hosts SET path=? WHERE id=?', ('', plan['existing_host_id']))
         changes = {
             "webListen": "127.0.0.1", "webDomain": "",
             "webCertFile": "", "webKeyFile": "", "webPort": plan["panel_port"],
@@ -492,12 +531,14 @@ http {{
 
 def prepare(source: Path, output: Path, project: Path, *, domain="", advertised="",
             backend_port=10001, modern=True, ipv6=True, certificate_mode="embedded", performance=None,
-            nginx_logging=False):
+            nginx_logging=False, grpc_service_name=None, grpc_authority=None, grpc_mode=None):
     from .performance import profile, validate
     performance = validate(performance) if performance is not None else profile()
     if output.exists():
         raise ConfigError("Render directory already exists; use a new directory.")
-    plan = inspect(source, domain, advertised, backend_port)
+    plan = inspect(source, domain, advertised, backend_port, grpc_service_name=grpc_service_name,
+                   grpc_authority=grpc_authority, grpc_mode=grpc_mode)
+    plan['grpc_service_override'] = grpc_service_name is not None
     plan['performance'] = performance
     plan['nginx_logging'] = nginx_logging
     plan["tls_domain"] = domain

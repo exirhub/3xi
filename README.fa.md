@@ -1,5 +1,32 @@
 # 3xi
 
+## تنظیم gRPC از زمان نصب و تولید کد در پنل اکسیر
+
+در پنل `exir-web-panel` مسیر **زیرساخت ← نصب سرور** (`/server-install`) برای مدیر دارای `admin.manage` اضافه شده است. دیتاسنتر، روش SSH / cloud-init / StackScript / startup، دامنه اختیاری، مسیر gRPC، authority، حالت multi/gun، آدرس کلاینت، DNS، ظرفیت و لاگ را انتخاب کنید و کد نصب را کپی یا دانلود کنید. انتخاب پیش‌فرض هر فیلد و دکمه «بازگشت به پیش‌فرض‌ها» همیشه در دسترس است. فرم دستوری روی سرور اجرا نمی‌کند.
+
+نمونه نصب با مقادیر دلخواه:
+
+```bash
+sudo bash install.sh --grpc-path /exir.v2.Tunnel/ --grpc-authority edge.example.com --grpc-mode multi
+```
+
+| گزینه | متغیر محیطی / فیلد StackScript | پیش‌فرض |
+| --- | --- | --- |
+| `--grpc-service-name` یا `--grpc-path` | `THREEXI_GRPC_SERVICE_NAME` | مقدار دیتابیس: `google.internal.analytics.v1.Tracker` |
+| `--grpc-authority` | `THREEXI_GRPC_AUTHORITY` | حفظ مقدار دیتابیس |
+| `--grpc-mode multi` یا `gun` | `THREEXI_GRPC_MODE` | مقدار دیتابیس: `multi` |
+| `--public-address` | `THREEXI_PUBLIC_ADDRESS` | آدرس کلاینت در دیتابیس |
+| `--performance-profile` | `THREEXI_PERFORMANCE_PROFILE` | `high` |
+| `--nginx-logs` | `THREEXI_NGINX_LOGS` | `off` |
+
+این گزینه‌ها برای `scripts/bootstrap.sh` هم کار می‌کنند؛ bootstrap گزینه `--dns-mode public` یا `preserve` هم دارد. فیلد خالی StackScript یعنی حفظ مقدار دیتابیس. گزینه صریح `--grpc-authority ''` مقدار Host را خالی می‌کند تا کلاینت SNI خودش را انتخاب کند. `3xi links --sni DOMAIN` از authority صریح زمان نصب استفاده می‌کند؛ با `--authority ''` می‌توان برای همان خروجی دوباره SNI کلاینت را انتخاب کرد.
+
+منظور از authority، همان Host در HTTP/2 است، نه رمز یا UUID. کاربران، شناسه‌ها و آمار حفظ می‌شوند و فایل اصلی `x-ui.db` تغییر نمی‌کند؛ تنظیمات فقط روی نسخه نصب‌شده اعمال می‌شوند. مسیر انتخابی در Nginx و Xray هماهنگ است. نام سرویس یا `/name/` را بدهید؛ `/Tun` و `/TunMulti` را اضافه نکنید. مسیر واقعی برای مثال بالا `/exir.v2.Tunnel/TunMulti` است. مسیر چندبخشیِ سفارشی متد در این نصاب پشتیبانی نمی‌شود.
+
+دامنه گواهی (`--domain`) مستقل از authority است. بدون دامنه، گواهی محلی و حالت Full؛ با دامنه، صدور Let’s Encrypt و Full (strict). انتخاب دیتاسنتر فقط روش خروجی را پیشنهاد می‌کند؛ فایروال و شبکه دیتاسنتر باید در کنسول خودش تنظیم شوند. اسکریپت تولیدشده DNS را قبل از دانلود اصلاح می‌کند و به‌صورت پیش‌فرض نسخه ثابت و سازگار 3xi را می‌گیرد؛ انتخاب `main` هم ممکن است.
+
+این تنظیمات مخصوص نصب هستند. اجرای دوباره روی نصب کامل‌شده، بدون `--clean-install` آن را بازنویسی نمی‌کند. برای تغییر ظرفیت و لاگ سرور موجود، کد hot update انتهای همین راهنما را اجرا کنید.
+
 ترکیب نصب و تنظیمات سیستم **xrm-1** با درگاه **Nginx + gRPC در XUPDATE** و سایت چندرسانه‌ای جدید **3xi Atlas**. دو مخزن قدیمی مستقل می‌مانند.
 
 [English](README.md) · [فایل‌های راه‌اندازی ابری](cloud-init/README.fa.md) · [نتایج آزمون](VALIDATION.md) · [منابع تصاویر و رسانه](website/ASSETS.md)

@@ -23,7 +23,15 @@ def main():
         sub = commands.add_parser(name)
         sub.add_argument("--db", type=Path, default=bundled_db)
         sub.add_argument("--domain", default=os.environ.get("THREEXI_DOMAIN", defaults.get("domain", "")), help="Optional domain for automatic Let’s Encrypt; omit for domain-independent origin TLS")
-        sub.add_argument("--public-address", default=defaults.get("public_address", ""))
+        sub.add_argument("--public-address", default=os.environ.get('THREEXI_PUBLIC_ADDRESS', defaults.get("public_address", "")))
+        sub.add_argument('--grpc-service-name', '--grpc-path', dest='grpc_service_name',
+                         default=os.environ.get('THREEXI_GRPC_SERVICE_NAME') or None,
+                         help='Override serviceName; accepts a name or /name/ prefix (omit to keep the database value)')
+        sub.add_argument('--grpc-authority', default=os.environ.get('THREEXI_GRPC_AUTHORITY') or None,
+                         help='Advertised HTTP/2 authority, not authentication; empty means client-selected SNI')
+        sub.add_argument('--grpc-mode', choices=('multi', 'gun'),
+                         default=os.environ.get('THREEXI_GRPC_MODE') or None,
+                         help='Client export mode (omit to keep the database value)')
         sub.add_argument("--backend-port", type=int, default=defaults.get("backend_port", 10001))
         if name == "render":
             sub.add_argument("--output", type=Path, required=True)
@@ -31,7 +39,7 @@ def main():
         if name in ('render', 'install'):
             sub.add_argument('--performance-profile', choices=('standard', 'high'),
                              default=os.environ.get('THREEXI_PERFORMANCE_PROFILE', 'high'))
-            sub.add_argument('--nginx-logs', choices=('off', 'on'), default='off')
+            sub.add_argument('--nginx-logs', choices=('off', 'on'), default=os.environ.get('THREEXI_NGINX_LOGS', 'off'))
         if name == "install":
             sub.add_argument("--acme-email", default=os.environ.get("THREEXI_ACME_EMAIL", ""), help="Optional ACME contact email")
             sub.add_argument("--archive", type=Path, help="Offline verified 3x-ui release archive")
@@ -42,7 +50,7 @@ def main():
     commands.add_parser("renew")
     links = commands.add_parser("links", help="Export VLESS URLs for a client-selected domain")
     links.add_argument("--sni", required=True)
-    links.add_argument("--authority", default="")
+    links.add_argument("--authority", default=None, help='Override the installed authority; empty explicitly follows SNI')
     links.add_argument("--address", default="", help="Optional Cloudflare edge address; defaults to SNI")
     links.add_argument("--db", type=Path, default=Path('/etc/x-ui/x-ui.db'))
     commands.add_parser("refresh")
@@ -66,10 +74,17 @@ def main():
                 raise ConfigError("Another THREEXI operation is active.") from error
         if args.action == "links":
             from .links import export_links
-            print('\n'.join(export_links(args.db, args.sni, args.authority, args.address)))
+            authority = args.authority
+            if authority is None and args.db == Path('/etc/x-ui/x-ui.db') and deploy.STATE.is_file():
+                authority = deploy.state_read()['plan'].get('grpc_authority_override')
+            print('\n'.join(export_links(args.db, args.sni, authority or '', args.address)))
             return 0
         if args.action in ("inspect", "render", "install"):
-            kw = dict(domain=args.domain, advertised=args.public_address, backend_port=args.backend_port)
+            if args.action in ('render', 'install') and args.nginx_logs not in ('off', 'on'):
+                raise ConfigError('THREEXI_NGINX_LOGS must be off or on.')
+            kw = dict(domain=args.domain, advertised=args.public_address, backend_port=args.backend_port,
+                      grpc_service_name=args.grpc_service_name, grpc_authority=args.grpc_authority,
+                      grpc_mode=args.grpc_mode)
             if args.action == "inspect":
                 result = public_summary(inspect(args.db, **kw))
             elif args.action == "render":

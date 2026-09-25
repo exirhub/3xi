@@ -16,6 +16,8 @@ Paste the entire file, not just its final command. The cloud-config embeds DNS r
 
 ## Optional domain
 
+The Exir administration panel now offers **Infrastructure → Server Installer** (`/server-install`): it generates the complete configured YAML or SSH/StackScript/startup script. You can also append `--grpc-service-name NAME`, `--grpc-authority HOST`, `--grpc-mode multi|gun`, `--public-address ADDRESS`, `--performance-profile high|standard` and `--nginx-logs off|on` to the bootstrap command below. `--grpc-path /NAME/` is an alias for the service option. Omitted fields preserve the bundled database values; explicit `--grpc-authority ''` follows client SNI. See the main README for the environment variable equivalents and constraints.
+
 Default: unique locally generated certificate, no domain prompt, Cloudflare **Full**. For Let’s Encrypt and **Full (strict)**, edit the final `runcmd` in the complete YAML:
 
 ```yaml

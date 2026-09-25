@@ -118,14 +118,28 @@ threexi_bootstrap_main() {
                 revision="$2"
                 shift 2
                 ;;
-            --domain|--acme-email)
+            --domain|--acme-email|--grpc-service-name|--grpc-path|--grpc-mode|--public-address|--performance-profile|--nginx-logs)
                 [[ "$#" -ge 2 && -n "$2" ]] || { echo "$1 requires a value." >&2; return 2; }
                 install_arguments+=("$1" "$2")
                 shift 2
                 ;;
+            --grpc-authority)
+                [[ "$#" -ge 2 ]] || { echo "$1 requires a value (empty is allowed)." >&2; return 2; }
+                install_arguments+=("$1" "$2")
+                shift 2
+                ;;
+            --dns-mode)
+                [[ "$#" -ge 2 && ( "$2" == public || "$2" == preserve ) ]] || {
+                    echo "--dns-mode requires public or preserve." >&2; return 2;
+                }
+                export THREEXI_DNS_MODE="$2"
+                shift 2
+                ;;
             --clean-install) clean_install=1; install_arguments+=(--clean-install); shift ;;
             --help|-h)
-                echo "Usage: sudo bash bootstrap.sh [--ref BRANCH_TAG_OR_COMMIT] [--clean-install] [--domain DOMAIN] [--acme-email EMAIL]"
+                echo "Usage: sudo bash bootstrap.sh [--ref REF] [--clean-install] [--domain DOMAIN] [--acme-email EMAIL]"
+                echo "Options: --grpc-service-name NAME (or --grpc-path /NAME/), --grpc-authority HOST, --grpc-mode multi|gun"
+                echo "         --public-address ADDRESS, --dns-mode public|preserve, --performance-profile high|standard, --nginx-logs off|on"
                 echo "Fresh installation uses the bundled database. Existing THREEXI is skipped."
                 echo "--clean-install deletes the old installation without backup."
                 return 0

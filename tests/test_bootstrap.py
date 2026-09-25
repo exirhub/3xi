@@ -136,6 +136,19 @@ threexi_bootstrap_main "${@:2}"
         self.assertEqual(self.install_args.read_text().splitlines(), ["--clean-install"])
         self.assertEqual(database.read_bytes(), b"original synthetic database")
 
+    def test_grpc_and_resource_flags_are_forwarded_without_shell_evaluation(self):
+        args=['--grpc-path','/exir.v2.Tunnel/','--grpc-authority','','--grpc-mode','gun',
+              '--domain','tls.example.org','--public-address','1.1.1.1',
+              '--performance-profile','high','--nginx-logs','off']
+        result=self.invoke('--dns-mode','preserve',*args)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertEqual(self.install_args.read_text().splitlines(),args)
+
+    def test_invalid_dns_mode_is_rejected_before_packages(self):
+        result=self.invoke('--dns-mode','unknown')
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse(self.calls.exists())
+
     def test_apt_failures_prevent_install_and_preserve_live_database(self):
         database = self.old_database()
         for phase in ("update", "install"):

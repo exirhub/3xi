@@ -45,6 +45,33 @@ HTTP-01 must reach `/.well-known/acme-challenge/` on TCP 80. For initial issuanc
 
 The domain is optional. When supplied, issuance **must succeed**; the installer does not silently switch to a self-signed certificate. Initial issuance finishes before old installation files are deleted. Existing managed listeners may pause briefly for verification and are restarted if issuance fails. The installer registers an ACME account and accepts the Let’s Encrypt subscriber agreement when this mode is selected; without an email, it registers without a contact address.
 
+### Configure gRPC at installation
+
+Keep all defaults by omitting these flags. To choose your own service, authority and mode:
+
+```bash
+sudo bash install.sh --grpc-service-name exir.v2.Tunnel --grpc-authority edge.example.com --grpc-mode multi
+```
+
+| Installer option | Environment / StackScript field | Default |
+| --- | --- | --- |
+| `--grpc-service-name NAME` or `--grpc-path /NAME/` | `THREEXI_GRPC_SERVICE_NAME` | Keep database: `google.internal.analytics.v1.Tracker` |
+| `--grpc-authority HOST` | `THREEXI_GRPC_AUTHORITY` | Keep database; no origin hostname restriction |
+| `--grpc-mode multi` or `gun` | `THREEXI_GRPC_MODE` | Keep database: `multi` |
+| `--public-address IP_OR_HOST` | `THREEXI_PUBLIC_ADDRESS` | Keep database's advertised address |
+| `--performance-profile high` or `standard` | `THREEXI_PERFORMANCE_PROFILE` | `high` |
+| `--nginx-logs off` or `on` | `THREEXI_NGINX_LOGS` | `off` |
+
+`authority` is the HTTP/2 Host, **not** a password or UUID. Existing VLESS clients, identities and counters remain intact. Explicit overrides apply to the installed database copy; the bundled `x-ui.db` stays byte-for-byte unchanged. Service selection updates both Xray and Nginx. Use a conventional name or `/name/` prefix; do not append `/Tun`, `/TunMulti` or nested custom-method paths. For `exir.v2.Tunnel`, requests use `/exir.v2.Tunnel/TunMulti` in multi mode or `/exir.v2.Tunnel/Tun` in gun mode. The installer rejects website/panel route collisions.
+
+`--grpc-authority ''` explicitly clears the advertised Host override and follows the client's SNI. An omitted option or an empty StackScript field preserves the database value. `3xi links --sni DOMAIN` uses an explicitly installed authority; `--authority ''` overrides it to follow that SNI. Certificate domain (`--domain`) and authority are independent; authority does not request a certificate or restrict which client domains reach the default Nginx virtual host.
+
+The same flags work with `scripts/bootstrap.sh`; it also accepts `--dns-mode public|preserve`. These are **installation** options: an already completed installation is still skipped without explicit clean installation. Use the Nginx-only hot update at the end of this README for capacity/log changes on an existing server.
+
+### Generate installation code in the Exir panel
+
+In `exir-web-panel`, open **Infrastructure → Server Installer** (`/server-install`, `admin.manage`). Select the provider, SSH/cloud-init/StackScript/startup output, optional certificate domain, gRPC service/authority/mode, advertised address, DNS, capacity and logging. Each transport field has a selectable database/default mode; **Reset all defaults** restores the complete form. The page generates copyable/downloadable code locally and does not contact or provision a server. The embedded bootstrap repairs DNS before downloads; the source defaults to the compatible pinned 3xi commit, with `main` available explicitly. Provider selection suggests an output format; provider firewalls, networks and credentials remain provider-console tasks. Ubuntu 24.04+ / Debian 12+ is required even on AWS or Oracle.
+
 ### Replace an old installation without backup
 
 ```bash

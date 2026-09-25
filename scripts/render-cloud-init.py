@@ -15,6 +15,12 @@ PROVIDERS = {
     "stackscript.sh": """# <UDF name="THREEXI_REF" label="Git revision" default="main" />
 # <UDF name="THREEXI_DOMAIN" label="Optional TLS domain (empty = local certificate)" default="" />
 # <UDF name="THREEXI_ACME_EMAIL" label="Optional Let's Encrypt email" default="" />
+# <UDF name="THREEXI_GRPC_SERVICE_NAME" label="gRPC service name (empty = bundled database)" default="" />
+# <UDF name="THREEXI_GRPC_AUTHORITY" label="gRPC authority (empty = bundled database)" default="" />
+# <UDF name="THREEXI_GRPC_MODE" label="gRPC mode: multi or gun (empty = bundled database)" default="" />
+# <UDF name="THREEXI_PUBLIC_ADDRESS" label="Client address (empty = bundled database)" default="" />
+# <UDF name="THREEXI_PERFORMANCE_PROFILE" label="Nginx capacity profile" default="high" oneof="high,standard" />
+# <UDF name="THREEXI_NGINX_LOGS" label="Nginx file logging" default="off" oneof="off,on" />
 # <UDF name="THREEXI_DNS_MODE" label="Resolver mode" default="public" oneof="public,preserve" />
 # <UDF name="THREEXI_CLEAN_INSTALL" label="Delete previous installation without backup" default="0" oneof="0,1" />
 """,

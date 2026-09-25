@@ -2,6 +2,12 @@
 # <UDF name="THREEXI_REF" label="Git revision" default="main" />
 # <UDF name="THREEXI_DOMAIN" label="Optional TLS domain (empty = local certificate)" default="" />
 # <UDF name="THREEXI_ACME_EMAIL" label="Optional Let's Encrypt email" default="" />
+# <UDF name="THREEXI_GRPC_SERVICE_NAME" label="gRPC service name (empty = bundled database)" default="" />
+# <UDF name="THREEXI_GRPC_AUTHORITY" label="gRPC authority (empty = bundled database)" default="" />
+# <UDF name="THREEXI_GRPC_MODE" label="gRPC mode: multi or gun (empty = bundled database)" default="" />
+# <UDF name="THREEXI_PUBLIC_ADDRESS" label="Client address (empty = bundled database)" default="" />
+# <UDF name="THREEXI_PERFORMANCE_PROFILE" label="Nginx capacity profile" default="high" oneof="high,standard" />
+# <UDF name="THREEXI_NGINX_LOGS" label="Nginx file logging" default="off" oneof="off,on" />
 # <UDF name="THREEXI_DNS_MODE" label="Resolver mode" default="public" oneof="public,preserve" />
 # <UDF name="THREEXI_CLEAN_INSTALL" label="Delete previous installation without backup" default="0" oneof="0,1" />
 # Standalone root startup script for Ubuntu 24.04+ / Debian 12+ cloud images.
@@ -123,14 +129,28 @@ threexi_bootstrap_main() {
                 revision="$2"
                 shift 2
                 ;;
-            --domain|--acme-email)
+            --domain|--acme-email|--grpc-service-name|--grpc-path|--grpc-mode|--public-address|--performance-profile|--nginx-logs)
                 [[ "$#" -ge 2 && -n "$2" ]] || { echo "$1 requires a value." >&2; return 2; }
                 install_arguments+=("$1" "$2")
                 shift 2
                 ;;
+            --grpc-authority)
+                [[ "$#" -ge 2 ]] || { echo "$1 requires a value (empty is allowed)." >&2; return 2; }
+                install_arguments+=("$1" "$2")
+                shift 2
+                ;;
+            --dns-mode)
+                [[ "$#" -ge 2 && ( "$2" == public || "$2" == preserve ) ]] || {
+                    echo "--dns-mode requires public or preserve." >&2; return 2;
+                }
+                export THREEXI_DNS_MODE="$2"
+                shift 2
+                ;;
             --clean-install) clean_install=1; install_arguments+=(--clean-install); shift ;;
             --help|-h)
-                echo "Usage: sudo bash bootstrap.sh [--ref BRANCH_TAG_OR_COMMIT] [--clean-install] [--domain DOMAIN] [--acme-email EMAIL]"
+                echo "Usage: sudo bash bootstrap.sh [--ref REF] [--clean-install] [--domain DOMAIN] [--acme-email EMAIL]"
+                echo "Options: --grpc-service-name NAME (or --grpc-path /NAME/), --grpc-authority HOST, --grpc-mode multi|gun"
+                echo "         --public-address ADDRESS, --dns-mode public|preserve, --performance-profile high|standard, --nginx-logs off|on"
                 echo "Fresh installation uses the bundled database. Existing THREEXI is skipped."
                 echo "--clean-install deletes the old installation without backup."
                 return 0

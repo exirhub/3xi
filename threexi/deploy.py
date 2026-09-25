@@ -438,7 +438,8 @@ def cleanup_owned(created, backup: Path | None):
     subprocess.run(["systemctl", "daemon-reload"], capture_output=True)
 
 def install(project: Path, source: Path, *, domain="", advertised="", backend_port=10001,
-            offline=None, clean_install=False, acme_email="", performance=None, nginx_logging=False):
+            offline=None, clean_install=False, acme_email="", performance=None, nginx_logging=False,
+            grpc_service_name=None, grpc_authority=None, grpc_mode=None):
     if os.geteuid() != 0 or not Path("/run/systemd/system").is_dir():
         raise ConfigError("Installation requires root on a systemd server.")
     if STATE.is_file() and not clean_install:
@@ -463,7 +464,8 @@ def install(project: Path, source: Path, *, domain="", advertised="", backend_po
         prepared = stage/"prepared"
         plan = prepare(source, prepared, project, domain=domain, advertised=advertised,
                        backend_port=backend_port, modern=modern, ipv6=ipv6, certificate_mode="auto",
-                       performance=performance, nginx_logging=nginx_logging)
+                       performance=performance, nginx_logging=nginx_logging,
+                       grpc_service_name=grpc_service_name, grpc_authority=grpc_authority, grpc_mode=grpc_mode)
         ports = [80, 443, plan["backend_port"], plan["panel_port"], plan["subscription_port"],
                  *plan["additional_inbound_ports"]]
         if not clean_install:
