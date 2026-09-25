@@ -211,9 +211,39 @@ The site ships with three original digital landscapes, three 16-second H.264/AAC
 
 Media playback starts after user interaction. Favorites and preferences stay in the browser. There is no fake analytics generator or background visitor simulation. Source prompts, generation notes and reproduction commands are in [`website/ASSETS.md`](website/ASSETS.md).
 
+## Increase gRPC connection capacity
+
+For an update that changes **only Nginx**, use the [hot-update block at the end of this README](#hot-update-nginx-only).
+
+New installations use the **high** resource profile. Apply it to an existing installation from the updated repository checkout:
+
+```bash
+git pull --ff-only
+sudo python3 -m threexi tune --profile high --nginx-logs off
+```
+
+| Setting | Older installations | Standard | High (new default) |
+| --- | --- | --- | --- |
+| Nginx `worker_connections`, per worker | 4096 | 16384 | **65536** |
+| Nginx worker/service and Xray service `nofile` | 65536 | 131072 | **262144** |
+| HTTP/2 concurrent streams, per frontend connection | 128 | 128 | **256** |
+| Nginx runtime file logs | Enabled | Off by default | **Off by default** |
+
+The command validates the candidate with `nginx -t`, raises live FD limits on the service processes and their children, persists systemd drop-ins and the selected profile, upgrades the managed generator/CLI modules in `/opt/3xi`, and gracefully reloads Nginx. It does not restart Xray or reimport the database. The route refresh timer preserves the profile. A repeated application does not reload unchanged Nginx configuration.
+
+Logging defaults to `--nginx-logs off`: `access_log off;` and `error_log /dev/null emerg;`. Routine requests produce no access-log records and Nginx runtime errors do not go to a log file. `error_log off;` is deliberately not used because `off` would be interpreted as a filename. The logging choice persists across route refresh and reboot. `--nginx-logs on` explicitly restores diagnostic file logging. Previously draining workers can finish under their old configuration; `nginx -t` and systemd status messages remain available.
+
+Use `--dry-run` to preview. After the first application, `sudo 3xi tune --profile high` is also available. For smaller machines use `--profile standard`; numeric overrides are `--worker-connections`, `--nofile` and `--h2-streams`. Raising limits consumes additional memory under load. Live FD limits that are already higher are not lowered; selecting a smaller profile changes future service/worker limits, not all existing processes immediately.
+
+The operation shares the installer/refresh lock, checks `fs.nr_open`, refuses unrelated manual gateway edits and verifies effective systemd limits/new workers. Failed applications restore the previous files and changed live limits; an incomplete restoration is reported explicitly. The host must permit live limit changes (`CAP_SYS_RESOURCE` when raising a hard limit). Services are not automatically restarted as a fallback.
+
+For new installations the optional selector is `sudo bash install.sh --performance-profile standard`; omitted means `high`, also for the cloud startup scripts. Logs default to off for both profiles; `--nginx-logs on` opts in. Merely pulling the repository or rerunning the completed installer does not tune an existing installation: run the command above.
+
+**Concurrency is not bandwidth.** There is no configured Nginx 20 MB/s rate cap. A ceiling increase alone does not promise 40–70 MB/s. If these units are bytes per second, 20 MB/s is 160 Mbit/s and 40–70 MB/s is 320–560 Mbit/s before overhead. The hardware, provider link, traffic mix and CDN path still determine throughput. No timeouts, Xray transport settings, routes or certificates are changed by tuning.
+
 ## EOF and high concurrency
 
-**The current defaults are not validated for 100,000 concurrent connections.** `worker_connections=4096` is per Nginx worker, and Xray inherits a `65536` FD ceiling. The single loopback TCP backend also has a source-port budget. `netdev_max_backlog=100000` is a packet queue, not connection capacity. Users, TCP sockets and gRPC streams are different quantities.
+**Even the high profile is not validated for 100,000 concurrent connections.** Older installations retain their earlier limits until explicitly tuned. The single loopback TCP backend still has a source-port budget. `netdev_max_backlog=100000` is a packet queue, not connection capacity. Users, TCP sockets and gRPC streams are different quantities.
 
 Run this from the repository checkout during the problem; it reads runtime limits, resource usage, socket counts and recent errors without restarting services or changing the database:
 
@@ -265,3 +295,33 @@ python3 -m threexi render --output /tmp/3xi-preview
 For browser tests, install Playwright and Chromium, then run `node tests/browser.cjs`. Set `THREEXI_CHROMIUM_PATH` only when using a separate Chromium binary. See [`VALIDATION.md`](VALIDATION.md) for measured results and live-deployment limits.
 
 The panel and terminal menu are pinned to **3x-ui v3.8.5**, amd64/arm64, with checksums in [`upstream.lock.json`](upstream.lock.json). Attribution and upstream license: [`THIRD_PARTY.md`](THIRD_PARTY.md).
+
+## Hot update: Nginx only
+
+Run the block below on an **already installed 3xi server**. It works after cloud-init/StackScript installation too, without a local Git checkout or package installation. It downloads the current project into a private temporary directory and applies only Nginx connection/FD/HTTP2 limits and logging settings:
+
+- `worker_connections 65536` per worker; `worker_rlimit_nofile 262144`; Nginx service `LimitNOFILE=262144`.
+- `http2_max_concurrent_streams 256`; access logging off; error output to `/dev/null` at `emerg` level.
+- Existing domains, SNI/authority, certificates, ports, gRPC route, panel settings, users and traffic statistics are preserved. The Xray service and its live FD limits are not changed or restarted.
+
+The updater preserves these values in the managed generator/state so the refresh timer cannot undo them. It validates with `nginx -t`, raises Nginx's live limits, then gracefully reloads Nginx. It restores previous settings if application fails. It neither runs `install.sh` nor imports `x-ui.db`.
+
+```bash
+sudo bash <<'BASH'
+set -Eeuo pipefail
+if [[ ! -f /etc/3xi/installed.json ]]; then
+    echo "An existing 3xi installation is required." >&2
+    exit 1
+fi
+update_dir="$(mktemp -d /var/tmp/3xi-nginx-update.XXXXXX)"
+trap 'rm -rf -- "$update_dir"' EXIT
+curl -fL --retry 5 --retry-delay 2 --connect-timeout 15 --max-time 180 \
+    https://codeload.github.com/exirhub/3xi/tar.gz/refs/heads/main \
+    -o "$update_dir/source.tar.gz"
+mkdir "$update_dir/source"
+tar -xzf "$update_dir/source.tar.gz" --strip-components=1 --no-same-owner -C "$update_dir/source"
+bash "$update_dir/source/scripts/hot-update-nginx.sh"
+BASH
+```
+
+If you already have the checkout, the equivalent command is `git pull --ff-only && sudo bash scripts/hot-update-nginx.sh`. Add `--dry-run` to the script invocation to validate/preview without applying it. These are concurrency limits; no fixed 40–70 MB/s throughput or 100,000-session capacity is claimed.

@@ -30,6 +30,8 @@ OWNED = (
     "/etc/systemd/system/threexi-refresh.timer",
     "/etc/systemd/system/threexi-tls.service",
     "/etc/systemd/system/threexi-tls.timer",
+    "/etc/systemd/system/x-ui.service.d/90-3xi-performance.conf",
+    "/etc/systemd/system/threexi-nginx.service.d/90-3xi-performance.conf",
     "/usr/bin/x-ui",
     "/usr/local/bin/3xi",
     "/usr/local/x-ui", "/etc/x-ui", "/etc/3xi",
@@ -174,8 +176,10 @@ def check_assets(config: Path, assets: Path):
     if missing:
         raise ConfigError("The release lacks required routing assets: " + ", ".join(missing))
 
-def unit_files():
-    return {
+def unit_files(performance=None):
+    from .performance import profile, validate
+    limits = validate(performance) if performance is not None else profile()
+    units = {
 "threexi-tls.service": """[Unit]
 Description=Rotate locally generated 3xi origin TLS certificate when nearing expiry
 After=threexi-nginx.service
@@ -263,6 +267,9 @@ Unit=threexi-refresh.service
 WantedBy=timers.target
 """
     }
+    for name in ('x-ui.service', 'threexi-nginx.service'):
+        units[name] = units[name].replace('LimitNOFILE=65536', f'LimitNOFILE={limits["nofile"]}')
+    return units
 
 def certificate_der():
     text = Path("/etc/3xi/tls/origin.pem").read_text()
@@ -431,11 +438,14 @@ def cleanup_owned(created, backup: Path | None):
     subprocess.run(["systemctl", "daemon-reload"], capture_output=True)
 
 def install(project: Path, source: Path, *, domain="", advertised="", backend_port=10001,
-            offline=None, clean_install=False, acme_email=""):
+            offline=None, clean_install=False, acme_email="", performance=None, nginx_logging=False):
     if os.geteuid() != 0 or not Path("/run/systemd/system").is_dir():
         raise ConfigError("Installation requires root on a systemd server.")
     if STATE.is_file() and not clean_install:
         return health(json.loads(STATE.read_text())["plan"])
+    from .performance import check_kernel, profile, validate
+    performance = validate(performance) if performance is not None else profile()
+    check_kernel(performance['nofile'])
     occupied = [p for p in OWNED if Path(p).exists() or Path(p).is_symlink()]
     if occupied and not clean_install:
         raise ConfigError("Existing installation found. Use --clean-install to remove it without backup. Paths: " + ", ".join(occupied))
@@ -452,7 +462,8 @@ def install(project: Path, source: Path, *, domain="", advertised="", backend_po
         stage = Path(tmp)
         prepared = stage/"prepared"
         plan = prepare(source, prepared, project, domain=domain, advertised=advertised,
-                       backend_port=backend_port, modern=modern, ipv6=ipv6, certificate_mode="auto")
+                       backend_port=backend_port, modern=modern, ipv6=ipv6, certificate_mode="auto",
+                       performance=performance, nginx_logging=nginx_logging)
         ports = [80, 443, plan["backend_port"], plan["panel_port"], plan["subscription_port"],
                  *plan["additional_inbound_ports"]]
         if not clean_install:
@@ -521,7 +532,7 @@ def install(project: Path, source: Path, *, domain="", advertised="", backend_po
                                              "__pycache__", "*.db", "*.zip", "*.tar.gz"))
             created.append("/usr/local/bin/3xi")
             write_private(Path("/usr/local/bin/3xi"), '#!/bin/sh\ncd /opt/3xi || exit 1\nexec python3 -m threexi "$@"\n', 0o755)
-            for filename, contents in unit_files().items():
+            for filename, contents in unit_files(performance).items():
                 path = "/etc/systemd/system/"+filename
                 created.append(path)
                 write_private(Path(path), contents, 0o644)

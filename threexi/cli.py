@@ -28,6 +28,10 @@ def main():
         if name == "render":
             sub.add_argument("--output", type=Path, required=True)
             sub.add_argument("--legacy-nginx", action="store_true")
+        if name in ('render', 'install'):
+            sub.add_argument('--performance-profile', choices=('standard', 'high'),
+                             default=os.environ.get('THREEXI_PERFORMANCE_PROFILE', 'high'))
+            sub.add_argument('--nginx-logs', choices=('off', 'on'), default='off')
         if name == "install":
             sub.add_argument("--acme-email", default=os.environ.get("THREEXI_ACME_EMAIL", ""), help="Optional ACME contact email")
             sub.add_argument("--archive", type=Path, help="Offline verified 3x-ui release archive")
@@ -43,10 +47,18 @@ def main():
     links.add_argument("--db", type=Path, default=Path('/etc/x-ui/x-ui.db'))
     commands.add_parser("refresh")
     commands.add_parser("rollback")
+    tuning = commands.add_parser('tune', help='Raise and persist Nginx/Xray connection ceilings without reimporting the database')
+    tuning.add_argument('--profile', choices=('standard', 'high'), default='high')
+    tuning.add_argument('--worker-connections', type=int)
+    tuning.add_argument('--nofile', type=int)
+    tuning.add_argument('--h2-streams', type=int)
+    tuning.add_argument('--nginx-logs', choices=('off', 'on'), default='off')
+    tuning.add_argument('--nginx-only', action='store_true', help='Leave the Xray service and its running limits unchanged')
+    tuning.add_argument('--dry-run', action='store_true')
     args = p.parse_args()
     os.umask(0o077)
     try:
-        if args.action in ("install", "refresh", "rollback", "renew") and os.geteuid() == 0:
+        if args.action in ("install", "refresh", "rollback", "renew", "tune") and os.geteuid() == 0:
             operation_lock = open("/run/lock/threexi-operation.lock", "a")
             try:
                 fcntl.flock(operation_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -61,17 +73,26 @@ def main():
             if args.action == "inspect":
                 result = public_summary(inspect(args.db, **kw))
             elif args.action == "render":
+                from .performance import profile
                 result = public_summary(prepare(args.db, args.output, project,
-                                               modern=not args.legacy_nginx, certificate_mode="auto", **kw))
+                                               modern=not args.legacy_nginx, certificate_mode="auto",
+                                               performance=profile(args.performance_profile), nginx_logging=args.nginx_logs == 'on', **kw))
             else:
+                from .performance import profile
                 result = deploy.install(project, args.db, offline=args.archive,
-                                        clean_install=args.clean_install, acme_email=args.acme_email, **kw)
+                                        clean_install=args.clean_install, acme_email=args.acme_email,
+                                        performance=profile(args.performance_profile), nginx_logging=args.nginx_logs == 'on', **kw)
         elif args.action == "doctor":
             result = deploy.health(deploy.state_read()["plan"], public=args.public)
         elif args.action == "renew":
             result = deploy.renew_certificate()
         elif args.action == "refresh":
             result = deploy.refresh()
+        elif args.action == 'tune':
+            from .performance import profile, tune
+            result = tune(project, profile(args.profile, worker_connections=args.worker_connections,
+                                          nofile=args.nofile, h2_streams=args.h2_streams),
+                          nginx_logging=args.nginx_logs == 'on', nginx_only=args.nginx_only, dry_run=args.dry_run)
         else:
             result = deploy.rollback()
         print(json.dumps(result, indent=2))
