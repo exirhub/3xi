@@ -4,6 +4,7 @@ Validated locally on 2026-09-25. This records executed checks, not a claim of pr
 
 ## Executed
 
+- **8 additional capacity-diagnostic tests passed.** They check source-port reservations, separate TCP socket sides, actual child-process FD limits, missing-service reporting, bounded log windows, error classification and omission of private URLs/raw messages. The read-only collector also ran locally without installed 3xi services. These checks are not a production load test.
 - **48 Python tests passed.** Coverage includes staged import, exact source-byte preservation, all unrelated inbound/table preservation, existing Host reuse, optional-domain metadata, independent origin keys, explicit ACME failures, restoration of prior services after simulated issuance failure, readable DNS under a private umask, clean removal boundaries, port conflicts, APT failure ordering, retry/locking, bootstrap idempotence and client URL export.
 - **Real Chromium interaction tests passed.** Actual MP3 playback and seek, H.264/AAC video loading, pause coordination, source release on film close, collection filters, bookmark persistence, keyboard gallery navigation, journal dialogs, reduced motion, mobile navigation and no horizontal overflow at 320/390/768/1440 px. No browser exceptions or failing HTTP responses. No MP3/MP4 downloads before interaction.
 - Desktop and mobile screenshots were inspected; image aspect ratios and small-screen navigation/layout were corrected.
@@ -23,6 +24,7 @@ The installer verifies the pinned 3x-ui archive and terminal-menu SHA-256, tests
 - Live Let’s Encrypt issuance/renewal for a user-controlled domain. The invocation, staging and failure paths are tested; DNS/ACME/provider reachability remains a deployment dependency.
 - Actual destination Nginx/Xray binary validation here; those binaries are checked by the installer on the server.
 - An authenticated VLESS session through the user's Cloudflare zone and client network. `3xi doctor --public DOMAIN` checks a public HTTPS endpoint; it does not establish authenticated VLESS end-to-end success.
+- A concurrent-load/soak test, including the requested 100,000-connection workload. Current defaults are not a capacity guarantee; see [the capacity review](docs/CAPACITY.md). The diagnostic snapshot does not establish capacity or an EOF root cause.
 
 The site and timeout settings do not guarantee immunity to Cloudflare rules, congestion, network filtering or DPI. The final deployment must be tested from the intended client network.
 

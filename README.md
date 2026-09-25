@@ -211,6 +211,19 @@ The site ships with three original digital landscapes, three 16-second H.264/AAC
 
 Media playback starts after user interaction. Favorites and preferences stay in the browser. There is no fake analytics generator or background visitor simulation. Source prompts, generation notes and reproduction commands are in [`website/ASSETS.md`](website/ASSETS.md).
 
+## EOF and high concurrency
+
+**The current defaults are not validated for 100,000 concurrent connections.** `worker_connections=4096` is per Nginx worker, and Xray inherits a `65536` FD ceiling. The single loopback TCP backend also has a source-port budget. `netdev_max_backlog=100000` is a packet queue, not connection capacity. Users, TCP sockets and gRPC streams are different quantities.
+
+Run this from the repository checkout during the problem; it reads runtime limits, resource usage, socket counts and recent errors without restarting services or changing the database:
+
+```bash
+git pull --ff-only
+sudo python3 scripts/diagnose-capacity.py
+```
+
+Send the report together with the exact client error, timestamp/timezone and client/core version. No reinstall is needed. See [capacity limits, EOF interpretation and the 100k test plan](docs/CAPACITY.md). An EOF alone does not prove Nginx saturation; larger timeouts do not override Cloudflare's connection lifecycle.
+
 ## Operations and troubleshooting
 
 ```bash
